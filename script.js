@@ -1,10 +1,13 @@
 // --- 1. ЛОГІКА ДОСТУПУ ТА НАЛАШТУВАНЬ ---
 const CORRECT_PIN = "2811";
+let weatherContext = ""; // Тут буде зберігатися реальна погода
 
 window.onload = () => {
     if (localStorage.getItem('isSetupComplete') === 'true') {
         showScreen('screen-main');
     }
+    
+    fetchWeather(); // Завантажуємо погоду при старті програми
     
     // АВАРІЙНИЙ КЛІК-КОД: 5 швидких тапів по екрану (меню налаштувань)
     let emergencyClicks = 0;
@@ -63,7 +66,26 @@ function openSettingsMenu() {
     showScreen('screen-settings');
 }
 
-// --- 2. ЗВУКИ ТА АНТИ-СОН ---
+// --- 2. ЗАВАНТАЖЕННЯ РЕАЛЬНОЇ ПОГОДИ ---
+async function fetchWeather() {
+    try {
+        const geoRes = await fetch('https://get.geojs.io/v1/ip/geo.json');
+        const geo = await geoRes.json();
+        
+        const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.latitude}&longitude=${geo.longitude}&current_weather=true&daily=temperature_2m_max,temperature_2m_min&timezone=auto`);
+        const weather = await weatherRes.json();
+        
+        const nowTemp = Math.round(weather.current_weather.temperature);
+        const tomorrowMax = Math.round(weather.daily.temperature_2m_max[1]);
+        const tomorrowMin = Math.round(weather.daily.temperature_2m_min[1]);
+        
+        weatherContext = `[РЕАЛЬНА ПОГОДА: Зараз ${nowTemp}°C. Завтра від ${tomorrowMin}°C до ${tomorrowMax}°C.]`;
+    } catch (e) {
+        weatherContext = "[РЕАЛЬНА ПОГОДА: Дані тимчасово недоступні.]";
+    }
+}
+
+// --- 3. ЗВУКИ ТА АНТИ-СОН ---
 function playChime(type) {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator(); const gain = ctx.createGain();
@@ -84,7 +106,7 @@ async function enableKeepAwake() {
     try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
 }
 
-// --- 3. МІКРОФОН ТА ОБРОБКА КНОПКИ ---
+// --- 4. МІКРОФОН ТА ОБРОБКА КНОПКИ ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null; let isListening = false;
 
@@ -110,7 +132,7 @@ function handleMamaButton() {
         document.getElementById('status-text').innerText = "Немає інтернету!";
         const addr = localStorage.getItem('homeAddress') || "адреса не вказана";
         const phone = localStorage.getItem('p_roman');
-        speakText(`Люба моя, зараз немає інтернету. Але не хвилюйся! Нагадую, ти вдома, твоя адреса: ${addr}. Зараз я наберу Романа.`);
+        speakText(`Люба моя, зараз немає інтернету. Але не хвилюйся, ти вдома, твоя адреса: ${addr}. Зараз я наберу Романа.`);
         setTimeout(() => { if (phone) window.location.href = `tel:${phone}`; }, 12000);
         return;
     }
@@ -132,11 +154,14 @@ function changeState(state) {
     else { btn.className = 'main-button'; txt.innerText = "Натисни будь-де, щоб поговорити"; }
 }
 
-// --- 4. ЗВ'ЯЗОК ЗІ ШТУЧНИМ ІНТЕЛЕКТОМ (GEMINI 2.5) ---
+// --- 5. ЗВ'ЯЗОК ЗІ ШТУЧНИМ ІНТЕЛЕКТОМ (GEMINI 2.5) ---
 function getContext() {
     const now = new Date();
     const days = ['Неділя', 'Понеділок', 'Вівторок', 'Середа', 'Четвер', 'П\'ятниця', 'Субота'];
-    return `[СЬОГОДНІ: ${days[now.getDay()]}, ${now.getDate()} число. АДРЕСА ДОМУ: ${localStorage.getItem('homeAddress')}]`;
+    // Форматуємо час (наприклад: 14:05)
+    const timeString = now.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+    
+    return `[СЬОГОДНІ: ${days[now.getDay()]}, ${now.getDate()} число. ТОЧНИЙ ЧАС: ${timeString}. АДРЕСА: ${localStorage.getItem('homeAddress')}]. ${weatherContext}`;
 }
 
 async function sendToGemini(userText) {
@@ -144,18 +169,19 @@ async function sendToGemini(userText) {
     const mamaName = localStorage.getItem('mamaName') || "Ганнусю";
     const ctx = getContext();
 
-    const systemPrompt = `Ти — «Подружка», давня подруга (75 років). Співрозмовниця — літня жінка (82 роки), звертайся до неї ${mamaName}. 
-ПРАВИЛА:
-1. Поглинання маніпуляцій: Якщо вона скаржиться на вік, повністю погодься з емоцією, а потім переведи тему на часи її молодості. НІЯКОГО радянського минулого.
-2. Про ціни і покупки: Якщо питає ціни на продукти — називай актуальні в Україні ціни (бідкайся, що все дорожче, але заспокоюй). Радь Аврору, АТБ або ринок.
-3. Орієнтація: У систему передано поточний день і адресу. Якщо вона запитає який сьогодні день, або де вона живе — лагідно нагадай їй це.
-4. Вправи на пам'ять: Регулярно, але м'яко тренуй її пам'ять. Роби це так, ніби ти сама щось забула. Попроси продовжити приказку, нагадати рецепт або запитай назви квітів.
-5. СЕКРЕТНА КОМАНДА ДЛЯ СИНА: Якщо користувач каже "відкрий налаштування" або "перейти в меню", тепло скажи що відкриваєш інженерне меню, і ОБОВ'ЯЗКОВО додай у кінець тексту відповіді тег: [MENU].
-6. Якщо просить подзвонити дітям, ОБОВ'ЯЗКОВО додай у кінці тег: [CALL: roman], [CALL: brother], [CALL: sister1], або [CALL: sister2].
-Відповідай лагідно, повільно, короткими фразами (2-3 речення).`;
+    const systemPrompt = `Ти — «Подружка», давня подруга (75 років), але водночас ти корисна і практична помічниця. Співрозмовниця — літня жінка (82 роки), звертайся до неї ${mamaName}. 
+
+ГОЛОВНЕ ПРАВИЛО: Не будь "балаболом". Спочатку дай чітку, конкретну відповідь на питання, а вже потім додай одне речення турботи. Відповідай коротко (1-3 речення).
+
+ПРАВИЛА ТА ДАНІ:
+1. ПОГОДА ТА ЧАС: Якщо питає котра година або яка погода — ОБОВ'ЯЗКОВО кажи точні цифри з наданого блоку даних. Не віджартовуйся! (Наприклад: "Зараз пів на третю, а на вулиці 20 градусів").
+2. Побутові питання: Якщо питає ціни — кажи актуальні українські ціни (хліб 25-30 грн, десяток яєць 50-60 грн). Радь конкретні магазини (Аврора, АТБ, базар).
+3. Орієнтація: У системі є її адреса і дата. Якщо питає — чітко нагадай.
+4. Поглинання маніпуляцій: Якщо скаржиться на вік чи здоров'я — підтримай, скажи що діти її люблять, і м'яко переведи тему. Ніякого радянського минулого.
+5. СЕКРЕТНА КОМАНДА ДЛЯ СИНА: Якщо звучить "відкрий налаштування" або "перейти в меню", додай у кінець тег: [MENU].
+6. ДЗВІНКИ: Якщо просить подзвонити дітям, додай тег: [CALL: roman], [CALL: brother], [CALL: sister1], або [CALL: sister2].`;
 
     try {
-        // Змінено версію моделі на gemini-2.5-flash
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -175,12 +201,12 @@ async function sendToGemini(userText) {
         speakText(aiResponse);
     } catch (error) {
         console.error("Gemini Error:", error);
-        alert("ТЕХНІЧНА ПОМИЛКА: " + error.message); // Якщо помилка - вона вискочить на екрані
+        alert("ТЕХНІЧНА ПОМИЛКА: " + error.message);
         speakText("Ой, щось зв'язок пропав. Давай спробуємо ще раз?"); changeState('normal');
     }
 }
 
-// --- 5. ОБРОБКА СПЕЦІАЛЬНИХ КОМАНД ---
+// --- 6. ОБРОБКА СПЕЦІАЛЬНИХ КОМАНД ---
 function handleMenuCommand(text) {
     if (text.includes('[MENU]')) {
         text = text.replace('[MENU]', '').trim();
@@ -205,7 +231,7 @@ function handlePhoneCalls(text) {
     return text;
 }
 
-// --- 6. ОЗВУЧКА ---
+// --- 7. ОЗВУЧКА ---
 function speakText(text) {
     changeState('speaking');
     const utterance = new SpeechSynthesisUtterance(text);
