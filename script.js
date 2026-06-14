@@ -1,6 +1,7 @@
 // --- 1. ЛОГІКА ДОСТУПУ ТА НАЛАШТУВАНЬ ---
 const CORRECT_PIN = "2811";
 let weatherContext = ""; // Тут буде зберігатися реальна погода
+let conversationHistory = []; // Пам'ять на останні 8 реплік розмови (контекст діалогу)
 
 window.onload = () => {
     if (localStorage.getItem('isSetupComplete') === 'true') {
@@ -58,6 +59,9 @@ function openSettingsMenu() {
     document.getElementById('phone-brother').value = localStorage.getItem('p_brother') || "";
     document.getElementById('phone-sister1').value = localStorage.getItem('p_sister1') || "";
     document.getElementById('phone-sister2').value = localStorage.getItem('p_sister2') || "";
+    
+    // Очищуємо пам'ять розмови при вході в налаштування
+    conversationHistory = [];
     
     if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
     if (isListening && recognition) { recognition.stop(); isListening = false; }
@@ -167,7 +171,17 @@ function getContext() {
         bedtimeInstruction = "УВАГА: Зараз вже дуже пізно (після 21:00). ОБОВ'ЯЗКОВО дуже лагідно, але наполегливо нагадай їй, що час вимикати телевізор і лягати спати. Побажай на добраніч.";
     }
 
-    return `[СЬОГОДНІ: ${days[now.getDay()]}, ${now.getDate()} число. ТОЧНИЙ ЧАС ЗАРАЗ: ${timeString}. АДРЕСА: ${localStorage.getItem('homeAddress')}]. ${weatherContext} ${bedtimeInstruction}`;
+    // Автоматична перевірка ліків за годинами
+    let medsInstruction = "";
+    if (currentHour >= 8 && currentHour < 10) {
+        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ: Зараз ранок. Дбайливо і лагідно запитай її, чи вона випила свої ранкові таблетки від тиску.";
+    } else if (currentHour >= 13 && currentHour < 15) {
+        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ: Зараз обідній час. М'яко нагадай їй прийняти обідні ліки.";
+    } else if (currentHour >= 19 && currentHour < 21) {
+        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ: Зараз вечір. Нагадай їй про вечірні ліки перед відпочинком.";
+    }
+
+    return `[СЬОГОДНІ: ${days[now.getDay()]}, ${now.getDate()} число. ТОЧНИЙ ЧАС ЗАРАЗ: ${timeString}. АДРЕСА: ${localStorage.getItem('homeAddress')}]. ${weatherContext} ${bedtimeInstruction} ${medsInstruction}`;
 }
 
 async function sendToGemini(userText) {
@@ -175,24 +189,40 @@ async function sendToGemini(userText) {
     const mamaName = localStorage.getItem('mamaName') || "Ганнусю";
     const ctx = getContext();
 
+    // 1. Додаємо нову репліку користувача в пам'ять розмови
+    conversationHistory.push({ role: "user", parts: [{ text: userText }] });
+    
+    // Обрізаємо масив до 8 елементів і гарантуємо, що історія завжди стартує з ролі 'user'
+    while (conversationHistory.length > 8 || (conversationHistory.length > 0 && conversationHistory[0].role !== 'user')) {
+        conversationHistory.shift();
+    }
+
+    // 2. Створюємо копію історії, щоб непомітно підселити поточний технічний контекст (час, погоду, ліки) в останнє повідомлення
+    let apiContents = JSON.parse(JSON.stringify(conversationHistory));
+    if (apiContents.length > 0 && apiContents[apiContents.length - 1].role === 'user') {
+        apiContents[apiContents.length - 1].parts[0].text = `${ctx}. Користувачка каже: "${userText}"`;
+    }
+
     const systemPrompt = `Ти — «Подружка», давня подруга (75 років) і практична помічниця. Співрозмовниця — літня жінка (82 роки), звертайся до неї ${mamaName}. 
 
-ГОЛОВНЕ ПРАВИЛО: Ти МАЄШ годинник і ЗНАЄШ погоду! Всі точні дані передані тобі в квадратних дужках []. Ніколи не кажи, що ти чогось не знаєш. Спочатку дай чітку відповідь, а потім додай турботу. Відповідай коротко (1-3 речення).
+ГОЛОВНЕ ПРАВИЛО: Ти МАЄШ годинник і ЗНАЄШ погоду! Всі точні дані передані тобі в квадратних дужках []. Ніколи не кажи, що ти чогось не знаєш. Спочатку дай чітку відповідь, а потім додай турботу. Відповідай коротко (1-3 речення). Тобі доступна історія поточної розмови, тому тримай нитку діалогу і не перепитуй те, що вже обговорили крок тому.
 
 ПРАВИЛА:
 1. ЧАС ТА ПОГОДА: Якщо питає котра година або погода — ПРОЧИТАЙ цифри з блоку даних. (Наприклад: "Зараз пів на третю, а на вулиці 20 градусів").
-2. СОН (ПІСЛЯ 21:00): Якщо в даних є команда про пізній час, м'яко попроси її вимкнути телевізор і йти відпочивати, бо здоров'я найважливіше.
-3. Побутові питання: Радь актуальні українські ціни та магазини.
-4. Орієнтація: У системі є її адреса і дата. Якщо питає — чітко нагадай.
-5. СЕКРЕТНА КОМАНДА ДЛЯ СИНА: Якщо звучить "відкрий налаштування" або "перейти в меню", додай у кінець тег: [MENU].
-6. ДЗВІНКИ: Якщо просить подзвонити дітям, додай тег: [CALL: roman], [CALL: brother], [CALL: sister1], або [CALL: sister2].`;
+2. СОН (ПІСЛЯ 21:00): Якщо в даних є команда про пізній час, м'яко попроси її вимкнути телевізор і йти відпочивати.
+3. НАГАДУВАННЯ ПРО ЛІКИ: Якщо в системних даних [] є повідомлення про ліки (ранок, обід або вечір), обов'язково дуже лагідно вплети це нагадування в поточну розмову.
+4. Побутові питання: Радь актуальні українські ціни та магазини (Аврора, АТБ, базар).
+5. Орієнтація: У системі є її адреса і дата. Якщо питає — чітко нагадай.
+6. Поглинання маніпуляцій: Якщо скаржиться на вік чи здоров'я — підтримай, скажи що діти її люблять, і м'яко переведи тему. Ніякого радянського минулого.
+7. СЕКРЕТНА КОМАНДА ДЛЯ СИНА: Якщо звучить "відкрий налаштування" або "перейти в меню", додай у кінець тег: [MENU].
+8. ДЗВІНКИ: Якщо просить подзвонити дітям, додай тег: [CALL: roman], [CALL: brother], [CALL: sister1], або [CALL: sister2].`;
 
     try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 system_instruction: { parts: [{ text: systemPrompt }] },
-                contents: [{ parts: [{ text: `${ctx}. Користувачка каже: "${userText}"` }] }]
+                contents: apiContents // Передаємо весь ланцюжок пам'яті розмови
             })
         });
 
@@ -201,6 +231,12 @@ async function sendToGemini(userText) {
         const data = await response.json();
         let aiResponse = data.candidates[0].content.parts[0].text;
         
+        // 3. Зберігаємо відповідь бота в історію розмови
+        conversationHistory.push({ role: "model", parts: [{ text: aiResponse }] });
+        while (conversationHistory.length > 8 || (conversationHistory.length > 0 && conversationHistory[0].role !== 'user')) {
+            conversationHistory.shift();
+        }
+
         aiResponse = handlePhoneCalls(aiResponse);
         aiResponse = handleMenuCommand(aiResponse);
         
