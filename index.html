@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Подружка</title>
+    <style>
+        /* Загальні стилі */
+        body { 
+            margin: 0; padding: 0; 
+            background-color: #f7f5f0; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            height: 100vh; overflow: hidden; 
+            user-select: none; overscroll-behavior: none; 
+        }
+        .screen { display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; }
+        .active-screen { display: flex; }
+        
+        /* Меню налаштувань та входу */
+        .admin-box { 
+            background: white; padding: 30px; border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1); width: 85%; max-width: 350px; 
+            text-align: center; max-height: 90vh; overflow-y: auto; 
+        }
+        .admin-box input { 
+            width: 100%; padding: 12px; margin: 8px 0; 
+            box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; 
+        }
+        .admin-box button { 
+            width: 100%; padding: 14px; background-color: #5cb87c; 
+            color: white; border: none; border-radius: 8px; font-size: 18px; 
+            cursor: pointer; font-weight: bold; margin-top: 10px; 
+        }
+        
+        /* Головний екран-кнопка */
+        .main-button { 
+            width: 100vw; height: 100vh; border: none; border-radius: 0; 
+            background: #5cb87c; cursor: pointer; outline: none; 
+            transition: background-color 0.4s ease; display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; 
+            -webkit-tap-highlight-color: transparent; 
+        }
+        #status-text { 
+            font-size: 32px; color: #ffffff; text-align: center; 
+            margin-bottom: 30px; font-weight: bold; text-shadow: 1px 2px 5px rgba(0,0,0,0.3); 
+            pointer-events: none; 
+        }
+        .emoji-flower { 
+            font-size: 160px; text-shadow: 2px 5px 15px rgba(0,0,0,0.2); 
+            transition: transform 0.3s ease; pointer-events: none; 
+        }
+        
+        /* Кольори станів */
+        .listening { background: #ffaaa6; } 
+        .listening .emoji-flower { animation: pulse-flower 1.5s infinite; }
+        .thinking { background: #a9a9a9; } 
+        .speaking { background: #5c8fb8; }
+        .offline-mode { background: #d9534f; }
+        
+        @keyframes pulse-flower { 
+            0% { transform: scale(1); } 
+            50% { transform: scale(1.15); } 
+            100% { transform: scale(1); } 
+        }
+    </style>
+</head>
+<body>
+    <div id="screen-password" class="screen active-screen">
+        <div class="admin-box">
+            <h2>Вхід у систему</h2>
+            <input type="password" id="pin-input" placeholder="Пароль" inputmode="numeric">
+            <button onclick="checkPassword()">Увійти</button>
+            <p id="pin-error" style="color: red; display: none;">Невірний пароль!</p>
+        </div>
+    </div>
+
+    <div id="screen-settings" class="screen">
+        <div class="admin-box">
+            <h3>Налаштування</h3>
+            <input type="password" id="api-key" placeholder="Ключ Gemini API">
+            <input type="text" id="mama-name" placeholder="Ім'я мами (напр. Ганнусю)">
+            <input type="text" id="home-address" placeholder="Домашня адреса (для безпеки)">
+            
+            <h4 style="margin-bottom: 5px; text-align: left;">Номери телефонів:</h4>
+            <input type="tel" id="phone-roman" placeholder="Твій номер (Роман)">
+            <input type="tel" id="phone-brother" placeholder="Номер брата">
+            <input type="tel" id="phone-sister1" placeholder="Номер сестри 1">
+            <input type="tel" id="phone-sister2" placeholder="Номер сестри 2">
+            
+            <button onclick="saveSettings()">Зберегти і почати</button>
+        </div>
+    </div>
+
+    <div id="screen-main" class="screen">
+        <button class="main-button" id="mama-btn" onclick="handleMamaButton()">
+            <div id="status-text">Натисни будь-де, щоб поговорити</div>
+            <span class="emoji-flower">🌻</span>
+        </button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
