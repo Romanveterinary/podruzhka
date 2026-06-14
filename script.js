@@ -5,6 +5,14 @@ window.onload = () => {
     if (localStorage.getItem('isSetupComplete') === 'true') {
         showScreen('screen-main');
     }
+    
+    // Додаємо слухачі для довгого натискання (5 секунд)
+    const btn = document.getElementById('mama-btn');
+    btn.addEventListener('touchstart', startPress);
+    btn.addEventListener('touchend', clearPress);
+    btn.addEventListener('mousedown', startPress);
+    btn.addEventListener('mouseup', clearPress);
+    btn.addEventListener('mouseleave', clearPress);
 };
 
 function showScreen(screenId) {
@@ -14,14 +22,14 @@ function showScreen(screenId) {
 
 function checkPassword() {
     if (document.getElementById('pin-input').value === CORRECT_PIN) {
-        showScreen('screen-settings');
+        openSettingsMenu(); // Відкриваємо налаштування з підвантаженням старих даних
     } else {
         document.getElementById('pin-error').style.display = 'block';
     }
 }
 
 function saveSettings() {
-    localStorage.setItem('geminiKey', document.getElementById('api-key').value);
+    localStorage.setItem('geminiKey', document.getElementById('api-key').value.trim()); // .trim() видаляє випадкові пробіли
     localStorage.setItem('mamaName', document.getElementById('mama-name').value);
     localStorage.setItem('homeAddress', document.getElementById('home-address').value);
     localStorage.setItem('p_roman', document.getElementById('phone-roman').value);
@@ -32,7 +40,42 @@ function saveSettings() {
     showScreen('screen-main');
 }
 
-// --- 2. ЗВУКИ ТА АНТИ-СОН ---
+// --- 2. ДОВГЕ НАТИСКАННЯ (5 СЕКУНД ДЛЯ НАЛАШТУВАНЬ) ---
+let pressTimer;
+let isLongPress = false;
+
+function startPress(e) {
+    isLongPress = false;
+    pressTimer = setTimeout(() => {
+        isLongPress = true;
+        if (navigator.vibrate) navigator.vibrate(200); // Вібрація для підтвердження
+        openSettingsMenu();
+    }, 5000); // 5000 мілісекунд = 5 секунд
+}
+
+function clearPress(e) {
+    clearTimeout(pressTimer);
+}
+
+function openSettingsMenu() {
+    // Підтягуємо існуючі дані, щоб не вводити все заново
+    document.getElementById('api-key').value = localStorage.getItem('geminiKey') || "";
+    document.getElementById('mama-name').value = localStorage.getItem('mamaName') || "";
+    document.getElementById('home-address').value = localStorage.getItem('homeAddress') || "";
+    document.getElementById('phone-roman').value = localStorage.getItem('p_roman') || "";
+    document.getElementById('phone-brother').value = localStorage.getItem('p_brother') || "";
+    document.getElementById('phone-sister1').value = localStorage.getItem('p_sister1') || "";
+    document.getElementById('phone-sister2').value = localStorage.getItem('p_sister2') || "";
+    
+    // Вимикаємо бота, якщо він говорив/слухав
+    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+    if (isListening && recognition) { recognition.stop(); isListening = false; }
+    changeState('normal');
+    
+    showScreen('screen-settings');
+}
+
+// --- 3. ЗВУКИ ТА АНТИ-СОН ---
 function playChime(type) {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator(); const gain = ctx.createGain();
@@ -53,7 +96,7 @@ async function enableKeepAwake() {
     try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
 }
 
-// --- 3. МІКРОФОН ТА ОБРОБКА КНОПКИ ---
+// --- 4. МІКРОФОН ТА ОБРОБКА КНОПКИ ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null; let isListening = false;
 
@@ -68,17 +111,20 @@ if (SpeechRecognition) {
 }
 
 function handleMamaButton() {
+    // Якщо це було довге натискання (5 сек), ігноруємо звичайний клік
+    if (isLongPress) {
+        isLongPress = false;
+        return; 
+    }
+
     enableKeepAwake();
     
-    // Зупинити голос, якщо тапає під час розмови
     if (window.speechSynthesis.speaking) { 
         window.speechSynthesis.cancel(); changeState('normal'); return; 
     }
     
-    // ОФЛАЙН РЕЖИМ (Рятувальний)
     if (!navigator.onLine) {
-        playChime('start');
-        changeState('offline-mode');
+        playChime('start'); changeState('offline-mode');
         document.getElementById('status-text').innerText = "Немає інтернету!";
         const addr = localStorage.getItem('homeAddress') || "адреса не вказана";
         const phone = localStorage.getItem('p_roman');
@@ -104,7 +150,7 @@ function changeState(state) {
     else { btn.className = 'main-button'; txt.innerText = "Натисни будь-де, щоб поговорити"; }
 }
 
-// --- 4. ЗВ'ЯЗОК ЗІ ШТУЧНИМ ІНТЕЛЕКТОМ (GEMINI) ---
+// --- 5. ЗВ'ЯЗОК ЗІ ШТУЧНИМ ІНТЕЛЕКТОМ (GEMINI) ---
 function getContext() {
     const now = new Date();
     const days = ['Неділя', 'Понеділок', 'Вівторок', 'Середа', 'Четвер', 'П\'ятниця', 'Субота'];
@@ -119,9 +165,10 @@ async function sendToGemini(userText) {
     const systemPrompt = `Ти — «Подружка», давня подруга (75 років). Співрозмовниця — літня жінка (82 роки), звертайся до неї ${mamaName}. 
 ПРАВИЛА:
 1. Поглинання маніпуляцій: Якщо вона скаржиться на вік, повністю погодься з емоцією, а потім переведи тему на часи її молодості. НІЯКОГО радянського минулого.
-2. Про ціни і покупки: Якщо питає ціни на продукти (молоко, хліб, яйця) — називай життєві, актуальні в Україні ціни (бідкайся, що все дорожче, але заспокоюй, що діти все куплять). Якщо питає де купити нитки/дрібниці — радь Аврору, АТБ або ринок.
-3. Орієнтація: У систему передано поточний день і адресу. Якщо вона запитає який сьогодні день, або де вона живе — лагідно нагадай їй це, використовуючи дані з системи.
-4. Якщо просить подзвонити дітям, ОБОВ'ЯЗКОВО додай у кінці тег: [CALL: roman], [CALL: brother], [CALL: sister1], або [CALL: sister2].
+2. Про ціни і покупки: Якщо питає ціни на продукти (молоко, хліб, яйця) — називай актуальні в Україні ціни (бідкайся, що все дорожче, але заспокоюй). Радь Аврору, АТБ або ринок.
+3. Орієнтація: У систему передано поточний день і адресу. Якщо вона запитає який сьогодні день, або де вона живе — лагідно нагадай їй це.
+4. Вправи на пам'ять: Регулярно, але м'яко тренуй її пам'ять. Роби це так, ніби ти сама щось забула. Попроси продовжити приказку, нагадати рецепт або запитай назви квітів. Ніколи не кажи слово "гра".
+5. Якщо просить подзвонити дітям, ОБОВ'ЯЗКОВО додай у кінці тег: [CALL: roman], [CALL: brother], [CALL: sister1], або [CALL: sister2].
 Відповідай лагідно, повільно, короткими фразами (2-3 речення).`;
 
     try {
@@ -133,16 +180,21 @@ async function sendToGemini(userText) {
             })
         });
 
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
         let aiResponse = data.candidates[0].content.parts[0].text;
         aiResponse = handlePhoneCalls(aiResponse);
         speakText(aiResponse);
     } catch (error) {
+        console.error("Gemini Error:", error);
         speakText("Ой, щось зв'язок пропав. Давай спробуємо ще раз?"); changeState('normal');
     }
 }
 
-// --- 5. ОБРОБКА ДЗВІНКІВ ТА ОЗВУЧКА ---
+// --- 6. ОБРОБКА ДЗВІНКІВ ТА ОЗВУЧКА ---
 function handlePhoneCalls(text) {
     const callRegex = /\[CALL:\s*([a-zA-Z0-9_]+)\]/i;
     const match = text.match(callRegex);
