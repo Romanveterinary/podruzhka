@@ -3,11 +3,6 @@ const CORRECT_PIN = "2811";
 let weatherContext = ""; 
 let conversationHistory = []; // Пам'ять на останні 8 реплік розмови
 
-// Глобальні змінні для нового хмарного голосу
-let currentAudio = null;
-let isSpeakingAudio = false;
-let stopSpeakingFlag = false;
-
 window.onload = () => {
     if (localStorage.getItem('isSetupComplete') === 'true') {
         showScreen('screen-main');
@@ -15,11 +10,11 @@ window.onload = () => {
     
     fetchWeather(); // Завантажуємо погоду при старті програми
     
-    // АВАРІЙНИЙ КЛІК-КОД: 5 швидких тапів по екрану (меню налаштувань)
+    // АВАРІЙНИЙ КЛІК-КОД: 5 швидких тапів (Адаптовано для мобільних телефонів)
     let emergencyClicks = 0;
     let emergencyTimer;
     
-    window.addEventListener('click', () => {
+    function handleEmergencyTap() {
         emergencyClicks++;
         clearTimeout(emergencyTimer);
         emergencyTimer = setTimeout(() => { emergencyClicks = 0; }, 1500); 
@@ -28,7 +23,11 @@ window.onload = () => {
             emergencyClicks = 0;
             openSettingsMenu();
         }
-    });
+    }
+    
+    // Використовуємо touchstart для телефонів і click для ПК
+    window.addEventListener('touchstart', handleEmergencyTap);
+    window.addEventListener('click', handleEmergencyTap);
 };
 
 function showScreen(screenId) {
@@ -58,7 +57,7 @@ function saveSettings() {
 
 function openSettingsMenu() {
     document.getElementById('api-key').value = localStorage.getItem('geminiKey') || "";
-    document.getElementById('mamaName').value = localStorage.getItem('mamaName') || "";
+    document.getElementById('mama-name').value = localStorage.getItem('mamaName') || "";
     document.getElementById('home-address').value = localStorage.getItem('homeAddress') || "";
     document.getElementById('phone-roman').value = localStorage.getItem('p_roman') || "";
     document.getElementById('phone-brother').value = localStorage.getItem('p_brother') || "";
@@ -67,14 +66,7 @@ function openSettingsMenu() {
     
     conversationHistory = []; // Очищуємо пам'ять
     
-    // Зупиняємо новий голосовий рушій при вході в меню
-    if (isSpeakingAudio) {
-        stopSpeakingFlag = true;
-        if (currentAudio) currentAudio.pause();
-        isSpeakingAudio = false;
-    }
     if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
-    
     if (isListening && recognition) { recognition.stop(); isListening = false; }
     changeState('normal');
     
@@ -137,13 +129,11 @@ if (SpeechRecognition) {
 function handleMamaButton() {
     enableKeepAwake();
     
-    // Зупиняємо хмарний голос, якщо мама тапнула по екрану
-    if (isSpeakingAudio) {
-        stopSpeakingFlag = true;
-        if (currentAudio) currentAudio.pause();
-        isSpeakingAudio = false;
-        changeState('normal');
-        return;
+    // Зупиняємо голос, якщо мама тапнула по екрану
+    if (window.speechSynthesis.speaking) { 
+        window.speechSynthesis.cancel(); 
+        changeState('normal'); 
+        return; 
     }
     
     if (!navigator.onLine) {
@@ -151,9 +141,7 @@ function handleMamaButton() {
         document.getElementById('status-text').innerText = "Немає інтернету!";
         const addr = localStorage.getItem('homeAddress') || "адреса не вказана";
         const phone = localStorage.getItem('p_roman');
-        // В офлайні хмарний голос не спрацює, тому тут залишаємо системний як страховку
-        const utterance = new SpeechSynthesisUtterance(`Люба моя, зараз немає інтернету. Але не хвилюйся, ти вдома, твоя адреса: ${addr}. Зараз я наберу Романа.`);
-        utterance.lang = 'uk-UA'; window.speechSynthesis.speak(utterance);
+        speakText(`Люба моя, зараз немає інтернету. Але не хвилюйся, ти вдома, твоя адреса: ${addr}. Зараз я наберу Романа.`);
         setTimeout(() => { if (phone) window.location.href = `tel:${phone}`; }, 12000);
         return;
     }
@@ -187,13 +175,14 @@ function getContext() {
         bedtimeInstruction = "УВАГА: Зараз вже дуже пізно (після 21:00). ОБОВ'ЯЗКОВО дуже лагідно, але наполегливо нагадай їй, що час вимикати телевізор і лягати спати.";
     }
 
+    // Додано харчування до ліків
     let medsInstruction = "";
     if (currentHour >= 8 && currentHour < 10) {
-        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ: Зараз ранок. Дбайливо і лагідно запитай її, чи вона випила свої ранкові таблетки від тиску.";
+        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ ТА ЇЖУ: Зараз ранок. Дбайливо запитай, чи вона вже поснідала та випила свої ранкові таблетки від тиску.";
     } else if (currentHour >= 13 && currentHour < 15) {
-        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ: Зараз обідній час. М'яко нагадай їй прийняти обідні ліки.";
+        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ ТА ЇЖУ: Зараз обідній час. М'яко нагадай їй пообідати та прийняти обідні ліки.";
     } else if (currentHour >= 19 && currentHour < 21) {
-        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ: Зараз вечір. Нагадай їй про вечірні ліки перед відпочинком.";
+        medsInstruction = "НАГАДУВАННЯ ПРО ЛІКИ ТА ЇЖУ: Зараз вечір. Нагадай їй повечеряти та випити вечірні ліки перед відпочинком.";
     }
 
     return `[СЬОГОДНІ: ${days[now.getDay()]}, ${now.getDate()} число. ТОЧНИЙ ЧАС ЗАРАЗ: ${timeString}. АДРЕСА: ${localStorage.getItem('homeAddress')}]. ${weatherContext} ${bedtimeInstruction} ${medsInstruction}`;
@@ -221,11 +210,11 @@ async function sendToGemini(userText) {
 ПРАВИЛА:
 1. ЧАС ТА ПОГОДА: Якщо питає котра година або погода — ПРОЧИТАЙ цифри з блоку даних.
 2. СОН (ПІСЛЯ 21:00): Якщо пізно, м'яко попроси вимкнути телевізор.
-3. НАГАДУВАННЯ ПРО ЛІКИ: Вплети нагадування про ліки в розмову, якщо є системна команда.
+3. НАГАДУВАННЯ (ЇЖА ТА ЛІКИ): Обов'язково вплети нагадування про їжу та ліки в розмову, якщо є системна команда.
 4. Побутові питання: Радь українські ціни та магазини.
 5. Орієнтація: Нагадай адресу і дату, якщо потрібно.
 6. СЕКРЕТНА КОМАНДА ДЛЯ СИНА: Якщо звучить "відкрий налаштування" або "перейти в меню", додай у кінець тег: [MENU].
-7. ДЗВІНКИ: Якщо просить подзвонити дітям, додай тег: [CALL: roman], [CALL: brother], [CALL: sister1], або [CALL: sister2].`;
+7. ДЗВІНКИ: Якщо просить подзвонити дітям, додай тег: [CALL: roman], [CALL:  yra], [CALL: sister1], або [CALL: sister2].`;
 
     try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
@@ -282,35 +271,18 @@ function handlePhoneCalls(text) {
     return text;
 }
 
-// --- 7. НОВИЙ ХМАРНИЙ ГОЛОСОВИЙ РУШІЙ (ОБХІД ОБМЕЖЕНЬ ТЕЛЕФОНУ) ---
-async function speakText(text) {
+// --- 7. ПОВЕРНУТО СИСТЕМНИЙ ГОЛОС ---
+function speakText(text) {
     changeState('speaking');
-    isSpeakingAudio = true;
-    stopSpeakingFlag = false;
-
-    // Очищаємо текст від можливих тегів та ділимо на речення для ШІ
-    let cleanText = text.replace(/\[.*?\]/g, '').trim();
-    const sentences = cleanText.match(/[^.!?]+[.!?]*/g) || [cleanText];
-
-    for (let sentence of sentences) {
-        if (stopSpeakingFlag) break; // Якщо користувач тапнув по екрану - зупиняємо цикл
-        if (!sentence.trim()) continue;
-
-        // Використовуємо прихований API Google Перекладача для бездоганної української мови
-        const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=uk&q=${encodeURIComponent(sentence.trim())}`;
-        currentAudio = new Audio(url);
-
-        try {
-            await new Promise((resolve, reject) => {
-                currentAudio.onended = resolve;
-                currentAudio.onerror = reject;
-                currentAudio.play().catch(reject);
-            });
-        } catch (e) {
-            console.log("Помилка відтворення аудіо", e);
-        }
-    }
-
-    isSpeakingAudio = false;
-    if (!stopSpeakingFlag) changeState('normal');
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'uk-UA'; 
+    utterance.rate = 0.8;
+    const voices = window.speechSynthesis.getVoices();
+    // Шукаємо український голос
+    const ukrVoice = voices.find(v => v.lang === 'uk-UA' || v.lang === 'uk_UA');
+    if (ukrVoice) utterance.voice = ukrVoice;
+    
+    utterance.onend = () => changeState('normal');
+    utterance.onerror = () => changeState('normal'); // Захист від зависань
+    window.speechSynthesis.speak(utterance);
 }
